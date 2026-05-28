@@ -1,28 +1,13 @@
-# AI 매출 리뷰 대시보드
+# 오프라인 매출 리뷰 대시보드(소재천) v2
 
-구글 스프레드시트 공개 CSV를 자동으로 읽어 매출 리뷰를 보여주는 Next.js + Vercel용 웹앱입니다.
+## 반영 사항
+- 제목 변경
+- KPI `일평균 합계` 삭제 후 `착지예측 매출(달성률)` 추가
+- `매출관리 필요매장(주간)` 섹션 변경
+- 상품 TOP10을 금주 판매량 기준으로 정렬
+- 상품 TOP10에 금주/전주 판매량, 증감률, 판매금액, 판매율 표시
 
 ## Vercel 환경변수
-
-아래 값을 Vercel Project Settings → Environment Variables에 입력하세요.
-
-```text
 NEXT_PUBLIC_GOOGLE_SHEET_ID=1lQHjJ920HXMazzdD0csxKaVbz1U6VFZg
 NEXT_PUBLIC_CHANNEL_SALES_GID=565810951
 NEXT_PUBLIC_PRODUCT_SALES_GID=1439021839
-```
-
-## 구글 스프레드시트 설정
-
-공유 → 링크가 있는 모든 사용자 → 뷰어
-
-## 로컬 실행
-
-```bash
-npm install
-npm run dev
-```
-
-## 배포
-
-GitHub에 이 폴더 안의 파일들을 저장소 루트에 올린 뒤 Vercel에서 Import Project 하면 됩니다.

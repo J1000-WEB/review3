@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -12,202 +13,214 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { analyze, createReview } from "@/lib/analysis";
+import { analyze } from "@/lib/analysis";
 import {
   csvUrl,
   fetchCsvRows,
+  formatCompactWon,
   formatWon,
   parseChannelSales,
   parseProductSales,
 } from "@/lib/sheets";
 
-const SHEET_ID =
-  process.env.NEXT_PUBLIC_GOOGLE_SHEET_ID || "1lQHjJ920HXMazzdD0csxKaVbz1U6VFZg";
+const SHEET_ID = process.env.NEXT_PUBLIC_GOOGLE_SHEET_ID || "1lQHjJ920HXMazzdD0csxKaVbz1U6VFZg";
 const CHANNEL_GID = process.env.NEXT_PUBLIC_CHANNEL_SALES_GID || "565810951";
 const PRODUCT_GID = process.env.NEXT_PUBLIC_PRODUCT_SALES_GID || "1439021839";
 
-function Card({
-  title,
-  value,
-  sub,
-}: {
-  title: string;
-  value: string;
-  sub?: string;
-}) {
-  return (
-    <div className="rounded-2xl bg-white p-5 shadow-sm">
-      <p className="text-sm text-gray-500">{title}</p>
-      <p className="mt-2 text-2xl font-bold text-gray-900">{value}</p>
-      {sub ? <p className="mt-1 text-sm text-gray-500">{sub}</p> : null}
-    </div>
-  );
+function pct(value: number | null | undefined) {
+  if (value === null || value === undefined || Number.isNaN(value)) return "-";
+  return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
+}
+
+function plainPct(value: number | null | undefined) {
+  if (value === null || value === undefined || Number.isNaN(value)) return "-";
+  return `${value.toFixed(1)}%`;
+}
+
+function statusClass(rate: number) {
+  if (rate < 70) return "red";
+  if (rate < 85) return "orange";
+  return "blue";
 }
 
 export default function Home() {
   const [channelRows, setChannelRows] = useState<any[]>([]);
   const [productRows, setProductRows] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [loadedAt, setLoadedAt] = useState("");
 
-  async function loadData() {
-    setError("");
+  async function load() {
     try {
-      const [channelCsv, productCsv] = await Promise.all([
+      setLoading(true);
+      setError("");
+      const [channelRaw, productRaw] = await Promise.all([
         fetchCsvRows(csvUrl(SHEET_ID, CHANNEL_GID)),
         fetchCsvRows(csvUrl(SHEET_ID, PRODUCT_GID)),
       ]);
-      setChannelRows(parseChannelSales(channelCsv));
-      setProductRows(parseProductSales(productCsv));
-      setLoadedAt(new Date().toLocaleString("ko-KR"));
+      setChannelRows(parseChannelSales(channelRaw));
+      setProductRows(parseProductSales(productRaw));
     } catch (e: any) {
-      setError(e?.message || "데이터를 불러오지 못했습니다.");
+      setError(e?.message || "데이터를 불러오는 중 오류가 발생했습니다.");
+    } finally {
+      setLoading(false);
     }
   }
 
   useEffect(() => {
-    loadData();
+    load();
   }, []);
 
-  const summary = useMemo(
-    () => analyze(channelRows, productRows),
-    [channelRows, productRows],
-  );
-
-  const review = useMemo(() => createReview(summary), [summary]);
+  const data = useMemo(() => analyze(channelRows, productRows), [channelRows, productRows]);
 
   return (
-    <main className="min-h-screen p-6 md:p-10">
-      <div className="mx-auto max-w-7xl">
-        <div className="mb-8 flex flex-col justify-between gap-4 md:flex-row md:items-end">
-          <div>
-            <p className="text-sm font-semibold text-indigo-600">
-              Google Sheets 자동연동
-            </p>
-            <h1 className="mt-2 text-3xl font-bold tracking-tight text-gray-950 md:text-4xl">
-              AI 매출 리뷰 대시보드
-            </h1>
-            <p className="mt-2 text-gray-600">
-              월일자별 채널판매와 점별 상품별 판매 데이터를 자동으로 읽어 분석합니다.
-            </p>
-          </div>
-          <button
-            onClick={loadData}
-            className="rounded-xl bg-gray-950 px-5 py-3 text-sm font-semibold text-white shadow-sm"
-          >
-            데이터 새로고침
-          </button>
+    <main>
+      <div className="header">
+        <div>
+          <h1>오프라인 매출 리뷰 대시보드(소재천)</h1>
+          <p className="subtitle">
+            Google Sheets 자동연동 · 기준 경과일 {data.elapsedDays}일 / 월 {data.monthDays}일
+          </p>
         </div>
-
-        {error ? (
-          <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 p-5 text-red-700">
-            {error}
-            <p className="mt-2 text-sm">
-              구글 스프레드시트가 “링크가 있는 모든 사용자 보기 가능”으로 설정되어 있는지 확인하세요.
-            </p>
-          </div>
-        ) : null}
-
-        <div className="mb-6 grid gap-4 md:grid-cols-4">
-          <Card title="월 목표" value={formatWon(summary.totalTarget)} />
-          <Card title="누적 매출" value={formatWon(summary.totalSales)} />
-          <Card
-            title="목표 달성률"
-            value={`${summary.achievementRate.toFixed(1)}%`}
-          />
-          <Card
-            title="일평균 합계"
-            value={formatWon(summary.avgSales)}
-            sub={loadedAt ? `갱신: ${loadedAt}` : ""}
-          />
-        </div>
-
-        <div className="grid gap-6 lg:grid-cols-2">
-          <section className="rounded-2xl bg-white p-5 shadow-sm">
-            <h2 className="mb-4 text-lg font-bold">일별 매출 추이</h2>
-            <div className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={summary.dailyTrend}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="day" />
-                  <YAxis tickFormatter={(v) => `${Math.round(Number(v) / 1000000)}M`} />
-                  <Tooltip formatter={(v: any) => formatWon(Number(v))} />
-                  <Line type="monotone" dataKey="amount" strokeWidth={2} dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </section>
-
-          <section className="rounded-2xl bg-white p-5 shadow-sm">
-            <h2 className="mb-4 text-lg font-bold">매장별 매출 TOP 10</h2>
-            <div className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={summary.topStores}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="storeName" hide />
-                  <YAxis tickFormatter={(v) => `${Math.round(Number(v) / 1000000)}M`} />
-                  <Tooltip
-                    labelFormatter={(label) => `매장: ${label}`}
-                    formatter={(v: any) => formatWon(Number(v))}
-                  />
-                  <Bar dataKey="total" />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </section>
-        </div>
-
-        <div className="mt-6 grid gap-6 lg:grid-cols-2">
-          <section className="rounded-2xl bg-white p-5 shadow-sm">
-            <h2 className="mb-4 text-lg font-bold">관리 필요 매장</h2>
-            <div className="space-y-3">
-              {summary.lowStores.map((store: any) => (
-                <div
-                  key={`${store.channel}-${store.storeName}`}
-                  className="flex items-center justify-between rounded-xl bg-gray-50 p-3"
-                >
-                  <div>
-                    <p className="font-semibold">{store.storeName}</p>
-                    <p className="text-sm text-gray-500">
-                      매출 {formatWon(store.total)} / 목표 {formatWon(store.target)}
-                    </p>
-                  </div>
-                  <p className="font-bold">{store.achievementRate.toFixed(1)}%</p>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section className="rounded-2xl bg-white p-5 shadow-sm">
-            <h2 className="mb-4 text-lg font-bold">상품 매출 TOP 10</h2>
-            <div className="space-y-3">
-              {summary.topProducts.map((item: any) => (
-                <div
-                  key={`${item.storeName}-${item.styleCode}-${item.productName}`}
-                  className="rounded-xl bg-gray-50 p-3"
-                >
-                  <div className="flex justify-between gap-4">
-                    <p className="font-semibold">{item.productName}</p>
-                    <p className="whitespace-nowrap font-bold">
-                      {formatWon(item.salesAmount)}
-                    </p>
-                  </div>
-                  <p className="mt-1 text-sm text-gray-500">
-                    {item.storeName} · 판매 {item.sold.toLocaleString("ko-KR")}개 · 재고 {item.stock.toLocaleString("ko-KR")}개
-                  </p>
-                </div>
-              ))}
-            </div>
-          </section>
-        </div>
-
-        <section className="mt-6 rounded-2xl bg-gray-950 p-6 text-white shadow-sm">
-          <h2 className="text-xl font-bold">AI 매출 리뷰 초안</h2>
-          <pre className="mt-4 whitespace-pre-wrap rounded-xl bg-white/10 p-4 text-sm leading-7">
-            {review}
-          </pre>
-        </section>
+        <button onClick={load}>{loading ? "불러오는 중..." : "데이터 새로고침"}</button>
       </div>
+
+      {error ? <div className="notice">{error}</div> : null}
+
+      <section className="grid4">
+        <div className="card">
+          <div className="kpi-title">월 목표</div>
+          <div className="kpi-value">{formatWon(data.totalTarget)}</div>
+          <div className="kpi-sub">전체 채널 목표 합계</div>
+        </div>
+        <div className="card">
+          <div className="kpi-title">누적 매출</div>
+          <div className="kpi-value">{formatWon(data.totalSales)}</div>
+          <div className="kpi-sub">현재 입력 데이터 기준</div>
+        </div>
+        <div className="card">
+          <div className="kpi-title">목표 달성률</div>
+          <div className="kpi-value">{plainPct(data.achievementRate)}</div>
+          <div className="kpi-sub">누적매출 ÷ 월목표</div>
+        </div>
+        <div className="card">
+          <div className="kpi-title">착지예측 매출(달성률)</div>
+          <div className="kpi-value">{formatWon(data.landingSales)}</div>
+          <div className="kpi-sub">예상 달성률 {plainPct(data.landingRate)}</div>
+        </div>
+      </section>
+
+      <section className="grid2">
+        <div className="card">
+          <h2>일별 매출 추이</h2>
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={data.dailyTrend}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="day" />
+              <YAxis tickFormatter={(v) => formatCompactWon(Number(v))} />
+              <Tooltip formatter={(v: any) => formatWon(Number(v))} />
+              <Line type="monotone" dataKey="sales" name="매출" strokeWidth={3} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div className="card">
+          <h2>매장별 매출 TOP10</h2>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={data.topStores}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="name" tick={{ fontSize: 11 }} interval={0} angle={-25} textAnchor="end" height={72} />
+              <YAxis tickFormatter={(v) => formatCompactWon(Number(v))} />
+              <Tooltip
+                formatter={(v: any, n: any) => [formatWon(Number(v)), n === "sales" ? "매출" : n]}
+                labelFormatter={(label) => `${label}`}
+              />
+              <Bar dataKey="sales" name="매출" radius={[8, 8, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </section>
+
+      <section className="grid2">
+        <div className="card">
+          <h2>매출관리 필요매장(주간)</h2>
+          <p className="subtitle" style={{ marginBottom: 10 }}>
+            기준: 금주 {data.ranges.thisWeekLabel} vs 전주 {data.ranges.lastWeekLabel} · 전주비 등락폭 + 착지예측 위험 기준
+          </p>
+          <table className="table">
+            <thead>
+              <tr>
+                <th>매장명</th>
+                <th>전주비</th>
+                <th>착지예측</th>
+                <th>부족예상</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.managedStores.map((row: any) => (
+                <tr key={row.name}>
+                  <td><strong>{row.name}</strong></td>
+                  <td>
+                    <span className={row.weeklyChangeRate !== null && row.weeklyChangeRate < 0 ? "down" : "up"}>
+                      {pct(row.weeklyChangeRate)}
+                    </span>
+                    <div className="muted">{formatCompactWon(row.lastWeekSales)} → {formatCompactWon(row.thisWeekSales)}</div>
+                  </td>
+                  <td>
+                    <span className={`badge ${statusClass(row.landingRate)}`}>{plainPct(row.landingRate)}</span>
+                    <div className="muted">{formatCompactWon(row.landingSales)}</div>
+                  </td>
+                  <td>{formatCompactWon(row.shortage)}</td>
+                </tr>
+              ))}
+              {data.managedStores.length === 0 ? (
+                <tr><td colSpan={4} className="muted">표시할 관리 필요 매장이 없습니다.</td></tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="card">
+          <h2>상품 TOP10</h2>
+          <p className="subtitle" style={{ marginBottom: 10 }}>
+            기준: 금주 판매량 높은 순 · T~W열 금주 / X~AA열 전주 합계 비교
+          </p>
+          <table className="table">
+            <thead>
+              <tr>
+                <th>상품</th>
+                <th>금주</th>
+                <th>전주</th>
+                <th>증감률</th>
+                <th>판매금액</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.productTop10.map((row: any, index: number) => (
+                <tr key={`${row.styleCode}-${index}`}>
+                  <td>
+                    <strong>{index + 1}. {row.productName}</strong>
+                    <div className="muted">{row.styleCode}</div>
+                  </td>
+                  <td>{row.thisWeekQty.toLocaleString("ko-KR")}</td>
+                  <td>{row.lastWeekQty.toLocaleString("ko-KR")}</td>
+                  <td>
+                    <span className={row.qtyChangeRate !== null && row.qtyChangeRate < 0 ? "down" : "up"}>
+                      {pct(row.qtyChangeRate)}
+                    </span>
+                  </td>
+                  <td>
+                    {formatCompactWon(row.salesAmount)}
+                    <div className="muted">판매율 {plainPct(row.sellThrough)}</div>
+                  </td>
+                </tr>
+              ))}
+              {data.productTop10.length === 0 ? (
+                <tr><td colSpan={5} className="muted">상품 데이터가 없습니다. 상품 시트의 T~AA열 위치를 확인해주세요.</td></tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </main>
   );
 }
