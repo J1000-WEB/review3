@@ -1,121 +1,149 @@
+import { num } from "./sheets";
 
-import { ChannelSale, ProductSale } from "./sheets";
+export type ChannelSale = {
+  storeName: string;
+  target: number;
+  total: number;
+  achievementRate: number;
+  daily: number[];
+  weeks: number[];
+  lastWeek: number;
+  thisWeek: number;
+  wowRate: number;
+  forecastSales: number;
+  forecastRate: number;
+};
 
-export function getElapsedDays(channelRows: ChannelSale[]) {
-  const totalsByDay = Array.from({ length: 31 }, (_, dayIndex) =>
-    channelRows.reduce((sum, row) => sum + (row.dailySales[dayIndex] || 0), 0)
-  );
-  const lastDayWithSales = totalsByDay.reduce((last, value, index) => (value > 0 ? index + 1 : last), 0);
-  return Math.max(lastDayWithSales, 1);
-}
+export type ProductSale = {
+  styleCode: string;
+  productName: string;
+  weekQty: number;
+  prevWeekQty: number;
+  qtyGrowthRate: number;
+  weekAmount: number;
+  prevWeekAmount: number;
+  salesRate: number;
+  totalAmount: number;
+};
 
-export function getMonthDays(channelRows: ChannelSale[]) {
-  const maxDailyColumns = Math.max(...channelRows.map((row) => row.dailySales.length), 30);
-  return maxDailyColumns || 30;
-}
-
-export function forecastLanding(totalSales: number, elapsedDays: number, monthDays: number) {
-  if (!elapsedDays || !monthDays) return 0;
-  return (totalSales / elapsedDays) * monthDays;
-}
-
-export function weekRangeLabels(elapsedDays: number) {
-  // 월일자별 채널판매 시트가 월 1일~31일 컬럼 구조라서,
-  // 가장 최근 입력일 기준 직전 7일을 "전주 월~일" 대체 구간으로 계산.
-  // 실제 요일 정보가 들어오면 이 함수만 요일 기준으로 교체 가능.
-  const lastWeekEnd = Math.max(elapsedDays - 7, 0);
-  const lastWeekStart = Math.max(lastWeekEnd - 6, 1);
-  const thisWeekEnd = elapsedDays;
-  const thisWeekStart = Math.max(elapsedDays - 6, 1);
-  return {
-    thisWeekLabel: `${thisWeekStart}일~${thisWeekEnd}일`,
-    lastWeekLabel: lastWeekEnd > 0 ? `${lastWeekStart}일~${lastWeekEnd}일` : "전주 데이터 부족",
-    thisWeekStart,
-    thisWeekEnd,
-    lastWeekStart,
-    lastWeekEnd,
-  };
-}
-
-function sumDays(row: ChannelSale, startDay: number, endDay: number) {
-  if (startDay <= 0 || endDay <= 0 || endDay < startDay) return 0;
-  let sum = 0;
-  for (let day = startDay; day <= endDay; day++) {
-    sum += row.dailySales[day - 1] || 0;
-  }
-  return sum;
-}
-
-export function analyze(channelRows: ChannelSale[], productRows: ProductSale[]) {
-  const filteredChannels = channelRows.filter((row) => row.storeName && row.target + row.total > 0);
-  const totalTarget = filteredChannels.reduce((sum, row) => sum + row.target, 0);
-  const totalSales = filteredChannels.reduce((sum, row) => sum + row.total, 0);
-  const elapsedDays = getElapsedDays(filteredChannels);
-  const monthDays = getMonthDays(filteredChannels);
-  const landingSales = forecastLanding(totalSales, elapsedDays, monthDays);
-  const landingRate = totalTarget > 0 ? (landingSales / totalTarget) * 100 : 0;
-  const achievementRate = totalTarget > 0 ? (totalSales / totalTarget) * 100 : 0;
-
-  const dailyTrend = Array.from({ length: monthDays }, (_, i) => ({
-    day: `${i + 1}일`,
-    sales: filteredChannels.reduce((sum, row) => sum + (row.dailySales[i] || 0), 0),
-  })).filter((item) => item.sales > 0);
-
-  const topStores = [...filteredChannels]
-    .sort((a, b) => b.total - a.total)
-    .slice(0, 10)
-    .map((row) => ({
-      name: row.storeName,
-      sales: row.total,
-      rate: row.achievementRate,
-    }));
-
-  const ranges = weekRangeLabels(elapsedDays);
-
-  const managedStores = filteredChannels
+export function parseChannelRows(rows: Record<string, string>[]): ChannelSale[] {
+  return rows
+    .filter((row) => (row["채널명"] || row["채널"] || "").trim())
     .map((row) => {
-      const thisWeekSales = sumDays(row, ranges.thisWeekStart, ranges.thisWeekEnd);
-      const lastWeekSales = sumDays(row, ranges.lastWeekStart, ranges.lastWeekEnd);
-      const weeklyChangeRate = lastWeekSales > 0 ? ((thisWeekSales - lastWeekSales) / lastWeekSales) * 100 : null;
-      const storeLanding = forecastLanding(row.total, elapsedDays, monthDays);
-      const landingRateByStore = row.target > 0 ? (storeLanding / row.target) * 100 : 0;
-      const shortage = Math.max(row.target - storeLanding, 0);
-      const changeScore = weeklyChangeRate === null ? 0 : Math.abs(weeklyChangeRate);
-      const landingRiskScore = Math.max(100 - landingRateByStore, 0);
+      const storeName = row["채널명"] || row["채널"] || "";
+      const target = num(row["월목표"]);
+      const total = num(row["합계"]);
+      const achievementRate = target > 0 ? (total / target) * 100 : num(row["달성률"]);
+
+      // 1~31일 컬럼을 폭넓게 탐색
+      const daily = Array.from({ length: 31 }, (_, i) => {
+        const d = i + 1;
+        return num(row[String(d)] || row[`${d}일`] || row[` ${d}`] || row[`__col${7 + i}`]);
+      });
+
+      const nonZeroDays = daily.filter((v) => v > 0).length;
+      const elapsed = Math.max(1, nonZeroDays || new Date().getDate());
+      const monthDays = daily.length >= 31 ? 31 : 30;
+      const forecastSales = total > 0 ? (total / elapsed) * monthDays : 0;
+      const forecastRate = target > 0 ? (forecastSales / target) * 100 : 0;
+
+      const weeks = [
+        sum(daily.slice(0, 7)),
+        sum(daily.slice(7, 14)),
+        sum(daily.slice(14, 21)),
+        sum(daily.slice(21, 28)),
+        sum(daily.slice(28, 31)),
+      ];
+
+      // 현재 입력된 데이터 기준 마지막 완성 주차와 직전 주차 비교
+      const validWeeks = weeks.map((v, i) => ({ v, i })).filter((w) => w.v > 0);
+      const thisIdx = validWeeks.length ? validWeeks[validWeeks.length - 1].i : 0;
+      const prevIdx = Math.max(0, thisIdx - 1);
+      const thisWeek = weeks[thisIdx] || 0;
+      const lastWeek = weeks[prevIdx] || 0;
+      const wowRate = lastWeek > 0 ? ((thisWeek - lastWeek) / lastWeek) * 100 : 0;
+
       return {
-        name: row.storeName,
-        total: row.total,
-        target: row.target,
-        thisWeekSales,
-        lastWeekSales,
-        weeklyChangeRate,
-        landingSales: storeLanding,
-        landingRate: landingRateByStore,
-        shortage,
-        score: changeScore * 0.55 + landingRiskScore * 0.45 + (shortage / 10000000),
+        storeName,
+        target,
+        total,
+        achievementRate,
+        daily,
+        weeks,
+        lastWeek,
+        thisWeek,
+        wowRate,
+        forecastSales,
+        forecastRate,
       };
-    })
-    .filter((row) => row.target > 0 && (row.weeklyChangeRate !== null || row.landingRate < 85))
-    .sort((a, b) => b.score - a.score)
+    });
+}
+
+export function parseProductRows(rows: Record<string, string>[]): ProductSale[] {
+  const grouped = new Map<string, ProductSale>();
+
+  rows.forEach((row) => {
+    const styleCode = row["스타일코드"] || row["스타일 코드"] || row["STYLE"] || row["__col2"] || "";
+    const productName = row["스타일명"] || row["상품명"] || row["__col3"] || "";
+    if (!styleCode && !productName) return;
+
+    // Google CSV는 병합 헤더 때문에 중복명이 생김. 사용자 확인 기준:
+    // T=금주 판매, W=금주 판매금액, X=전주 판매, AA=전주 판매금액
+    // 0-base index: T 19, W 22, X 23, AA 26
+    const weekQty = num(row["__col19"]);
+    const weekAmount = num(row["__col22"]);
+    const prevWeekQty = num(row["__col23"]);
+    const prevWeekAmount = num(row["__col26"]);
+    const totalAmount = num(row["판매금액"] || row["__col16"] || weekAmount);
+    const salesRate = num(row["판매율"] || row["__col14"]);
+
+    const key = styleCode || productName;
+    const old = grouped.get(key) || {
+      styleCode,
+      productName,
+      weekQty: 0,
+      prevWeekQty: 0,
+      qtyGrowthRate: 0,
+      weekAmount: 0,
+      prevWeekAmount: 0,
+      salesRate: 0,
+      totalAmount: 0,
+    };
+
+    old.weekQty += weekQty;
+    old.prevWeekQty += prevWeekQty;
+    old.weekAmount += weekAmount;
+    old.prevWeekAmount += prevWeekAmount;
+    old.totalAmount += totalAmount;
+    old.salesRate = Math.max(old.salesRate, salesRate);
+    grouped.set(key, old);
+  });
+
+  return Array.from(grouped.values())
+    .map((p) => ({
+      ...p,
+      qtyGrowthRate: p.prevWeekQty > 0 ? ((p.weekQty - p.prevWeekQty) / p.prevWeekQty) * 100 : p.weekQty > 0 ? 100 : 0,
+    }))
+    .sort((a, b) => b.weekQty - a.weekQty);
+}
+
+export function buildWeeklyTrend(channels: ChannelSale[]) {
+  return [0, 1, 2, 3, 4].map((idx) => ({
+    name: `${idx + 1}주차`,
+    매출: sum(channels.map((c) => c.weeks[idx] || 0)),
+  }));
+}
+
+export function managementStores(channels: ChannelSale[]) {
+  return channels
+    .map((c) => ({
+      ...c,
+      riskScore: Math.abs(c.wowRate) + Math.max(0, 85 - c.forecastRate),
+    }))
+    .sort((a, b) => b.riskScore - a.riskScore)
     .slice(0, 8);
+}
 
-  const productTop10 = [...productRows]
-    .filter((row) => row.productName && (row.thisWeekQty > 0 || row.sold > 0))
-    .sort((a, b) => (b.thisWeekQty || b.sold) - (a.thisWeekQty || a.sold))
-    .slice(0, 10);
-
-  return {
-    totalTarget,
-    totalSales,
-    achievementRate,
-    elapsedDays,
-    monthDays,
-    landingSales,
-    landingRate,
-    dailyTrend,
-    topStores,
-    managedStores,
-    productTop10,
-    ranges,
-  };
+function sum(values: number[]) {
+  return values.reduce((a, b) => a + b, 0);
 }
