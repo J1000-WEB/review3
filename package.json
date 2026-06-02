@@ -1,6 +1,6 @@
 {
-  "name": "sales-review-dashboard-v4",
-  "version": "0.4.0",
+  "name": "sales-review-dashboard-v4-1",
+  "version": "0.4.1",
   "private": true,
   "scripts": {
     "dev": "next dev",

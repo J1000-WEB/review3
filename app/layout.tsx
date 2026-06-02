@@ -1,15 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-
-export const metadata: Metadata = {
-  title: "오프라인 매출 리뷰 대시보드(소재천)",
-  description: "오프라인 매출 리뷰 대시보드",
-};
-
+export const metadata: Metadata = { title: "오프라인 매출 리뷰 대시보드(소재천)", description: "오프라인 매출 리뷰 대시보드" };
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <html lang="ko">
-      <body>{children}</body>
-    </html>
-  );
+  return <html lang="ko"><body>{children}</body></html>;
 }
