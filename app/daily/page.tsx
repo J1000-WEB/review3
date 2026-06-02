@@ -1,0 +1,32 @@
+import NavTabs from "@/components/NavTabs";
+
+export default function DailyPage() {
+  return (
+    <main className="min-h-screen p-6">
+      <div className="mx-auto max-w-7xl space-y-6">
+        <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">오프라인 매출 리뷰 대시보드(소재천)</h1>
+            <p className="mt-1 text-sm text-slate-500">일간 페이지 · 금일 vs 전주 동요일 비교</p>
+          </div>
+          <NavTabs active="daily" />
+        </header>
+
+        <section className="rounded-3xl bg-white p-8 shadow-sm">
+          <h2 className="text-2xl font-black">일간 매출 리뷰</h2>
+          <p className="mt-3 text-slate-600">
+            일간 데이터 시트가 연결되면 금일 매출, 전주 동요일 매출, 증감률, 일간 TOP 매장/상품을 표시합니다.
+          </p>
+          <div className="mt-6 grid gap-4 md:grid-cols-4">
+            {["금일 매출", "전주 동요일 매출", "증감률", "금일 착지예측"].map((t) => (
+              <div key={t} className="rounded-2xl bg-slate-50 p-5">
+                <p className="text-sm font-semibold text-slate-500">{t}</p>
+                <p className="mt-3 text-2xl font-black">-</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+    </main>
+  );
+}
