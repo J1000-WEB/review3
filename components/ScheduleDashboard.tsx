@@ -1,0 +1,798 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import NavTabs from "@/components/NavTabs";
+
+function text(v: any) {
+  return String(v ?? "").trim();
+}
+
+function toDate(value: string) {
+  if (!value) return null;
+  const d = new Date(`${value}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function ymd(date: Date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function displayDay(date: Date) {
+  return `${date.getMonth() + 1}/${date.getDate()}`;
+}
+
+function dayName(date: Date) {
+  return ["일", "월", "화", "수", "목", "금", "토"][date.getDay()];
+}
+
+function normalizeWeatherText(raw: any) {
+  const value = text(raw).toLowerCase();
+  if (!value || value === "-") return "-";
+
+  const rules: Array<[RegExp, string]> = [
+    [/thunder|천둥|뇌우/, "⛈️ 뇌우"],
+    [/snow|sleet|눈|진눈깨비/, "❄️ 눈"],
+    [/shower|소나기/, "⛈ 소나기"],
+    [/rain|drizzle|비|실 비|가벼운 비|약한 비/, "🌧 비"],
+    [/mist|fog|haze|박무|안개|연무/, "🌫 안개"],
+    [/clear|맑음/, "☀️ 맑음"],
+    [/few clouds|구름조금/, "🌤 구름조금"],
+    [/scattered clouds|broken clouds|튼구름|구름 많/, "⛅ 구름많음"],
+    [/overcast clouds|clouds|온흐림|흐림/, "☁️ 흐림"],
+  ];
+
+  for (const [pattern, label] of rules) {
+    if (pattern.test(value)) return label;
+  }
+
+  return text(raw) || "-";
+}
+
+function monthTitle(date: Date) {
+  return `${date.getFullYear()}년 ${date.getMonth() + 1}월`;
+}
+
+function monthStart(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function monthEnd(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0);
+}
+
+function dateRange(start: Date, end: Date) {
+  const out: Date[] = [];
+  const cur = new Date(start);
+  while (cur <= end) {
+    out.push(new Date(cur));
+    cur.setDate(cur.getDate() + 1);
+  }
+  return out;
+}
+
+function diffDays(a: Date, b: Date) {
+  const day = 24 * 60 * 60 * 1000;
+  return Math.round((ymd(b as Date) as any, (b.getTime() - a.getTime()) / day));
+}
+
+function clampDate(date: Date, start: Date, end: Date) {
+  if (date < start) return start;
+  if (date > end) return end;
+  return date;
+}
+
+function categoryClass(category: string) {
+  if (category === "promotion") return "bg-rose-500 text-white";
+  if (category === "special_offer_week") return "bg-orange-500 text-white";
+  if (category === "vmd") return "bg-emerald-500 text-white";
+  if (category === "meeting") return "bg-violet-500 text-white";
+  if (category === "product") return "bg-cyan-500 text-white";
+  if (category === "schedule") return "bg-blue-600 text-white";
+  if (category === "performance") return "bg-amber-300 text-slate-900";
+  return "bg-slate-300 text-slate-800";
+}
+
+function categorySoftClass(category: string) {
+  if (category === "promotion")
+    return "border-rose-100 bg-rose-50 text-rose-700";
+  if (category === "special_offer_week")
+    return "border-orange-100 bg-orange-50 text-orange-700";
+  if (category === "vmd")
+    return "border-emerald-100 bg-emerald-50 text-emerald-700";
+  if (category === "meeting")
+    return "border-violet-100 bg-violet-50 text-violet-700";
+  if (category === "product") return "border-cyan-100 bg-cyan-50 text-cyan-700";
+  if (category === "schedule")
+    return "border-blue-100 bg-blue-50 text-blue-700";
+  if (category === "performance")
+    return "border-amber-100 bg-amber-50 text-amber-700";
+  return "border-slate-100 bg-slate-50 text-slate-600";
+}
+
+const TEAM_MEMBERS = [
+  "지승현",
+  "최다은",
+  "손민지",
+  "한선아",
+  "소재천",
+  "이용훈",
+  "조지현",
+];
+
+const CATEGORY_ROWS_TOP = [
+  { key: "promotion", label: "프로모션" },
+  { key: "special_offer_week", label: "스페셜오퍼위크" },
+];
+
+const CATEGORY_ROWS_BOTTOM = [
+  { key: "vmd", label: "VMD" },
+  { key: "meeting", label: "회의" },
+  ...TEAM_MEMBERS.map((name) => ({
+    key: `staff:${name}`,
+    label: name,
+    category: "schedule",
+  })),
+  { key: "schedule", label: "기타 일정" },
+  { key: "general", label: "기타" },
+];
+
+const CATEGORY_ROWS = [...CATEGORY_ROWS_TOP, ...CATEGORY_ROWS_BOTTOM];
+
+function eventDurationDays(event: any) {
+  const s = toDate(event.startDate);
+  const e = toDate(event.endDate || event.startDate);
+  if (!s || !e) return 1;
+  return Math.max(1, diffDays(s, e) + 1);
+}
+
+function EventBar({
+  event,
+  monthStartDate,
+  monthEndDate,
+  dayWidth,
+  compact = false,
+}: {
+  event: any;
+  monthStartDate: Date;
+  monthEndDate: Date;
+  dayWidth: number;
+  compact?: boolean;
+}) {
+  const start = toDate(event.startDate) || monthStartDate;
+  const end = toDate(event.endDate || event.startDate) || start;
+  const visibleStart = clampDate(start, monthStartDate, monthEndDate);
+  const visibleEnd = clampDate(
+    end < start ? start : end,
+    monthStartDate,
+    monthEndDate,
+  );
+  const left = diffDays(monthStartDate, visibleStart) * dayWidth;
+  const width = (diffDays(visibleStart, visibleEnd) + 1) * dayWidth - 8;
+  const isLong = eventDurationDays(event) > 1;
+
+  return (
+    <div
+      className={`absolute rounded-xl font-black shadow-sm ${categoryClass(event.category)} ${compact ? "top-1 h-6 px-2 py-1 text-[10px]" : `top-1 px-3 py-2 text-xs ${isLong ? "h-9" : "h-8"}`}`}
+      style={{
+        left: `${left + 4}px`,
+        width: `${Math.max(compact ? 76 : 90, width)}px`,
+      }}
+      title={`${event.startDate}${event.endDate && event.endDate !== event.startDate ? ` ~ ${event.endDate}` : ""} / ${event.person || ""} / ${event.group || ""} / ${event.content || event.title}${event.category === "special_offer_week" ? ` / 기간 매출: ${Math.round(Number(event.salesAmount || 0)).toLocaleString("ko-KR")}원` : ""}`}
+    >
+      <div className="truncate leading-4">
+        {isLong ? (compact ? "━ " : "━━ ") : "● "}{" "}
+        {event.displayTitle || event.title}
+      </div>
+    </div>
+  );
+}
+
+function stackEvents(events: any[]) {
+  const sorted = [...events].sort((a, b) => {
+    const aStart = text(a.startDate);
+    const bStart = text(b.startDate);
+    if (aStart !== bStart) return aStart.localeCompare(bStart);
+    return eventDurationDays(b) - eventDurationDays(a);
+  });
+
+  const lanes: any[][] = [];
+  for (const event of sorted) {
+    const s = toDate(event.startDate);
+    const e = toDate(event.endDate || event.startDate);
+    const startMs = s?.getTime() || 0;
+    const endMs = e?.getTime() || startMs;
+
+    let placed = false;
+    for (const lane of lanes) {
+      const last = lane[lane.length - 1];
+      const lastEnd = toDate(last.endDate || last.startDate)?.getTime() || 0;
+      if (startMs > lastEnd) {
+        lane.push(event);
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) lanes.push([event]);
+  }
+  return lanes;
+}
+
+export default function ScheduleDashboard() {
+  const [data, setData] = useState<any>(null);
+  const [query, setQuery] = useState("");
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [hiddenSchedule, setHiddenSchedule] = useState(true);
+  const [weatherData, setWeatherData] = useState<any[]>([]);
+
+  function weatherApiUrl() {
+    // 판매전체상 날씨는 브라우저 기준 하루 1회만 OpenWeather를 갱신합니다.
+    // 같은 날 다시 열면 Weather_History만 읽어서 API 호출을 줄입니다.
+    const today = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" });
+    try {
+      const key = "mark_weather_refresh_day";
+      if (typeof window !== "undefined" && localStorage.getItem(key) !== today) {
+        localStorage.setItem(key, today);
+        return "/api/weather?refresh=1";
+      }
+    } catch {}
+    return "/api/weather";
+  }
+
+  async function load() {
+    const [scheduleRes, weatherRes] = await Promise.allSettled([
+      fetch("/api/schedule", { cache: "no-store" }),
+      fetch(weatherApiUrl(), { cache: "no-store" }),
+    ]);
+
+    if (scheduleRes.status === "fulfilled" && scheduleRes.value.ok) {
+      const json = await scheduleRes.value
+        .json()
+        .catch(() => ({
+          ok: false,
+          error: "판매전체상 데이터를 불러오지 못했습니다.",
+          events: [],
+        }));
+      setData(json);
+    } else {
+      setData({
+        ok: false,
+        error: "판매전체상 데이터를 불러오지 못했습니다.",
+        events: [],
+      });
+    }
+
+    if (weatherRes.status === "fulfilled" && weatherRes.value.ok) {
+      const weatherJson = await weatherRes.value
+        .json()
+        .catch(() => ({ records: [] }));
+      setWeatherData(
+        Array.isArray(weatherJson.records) ? weatherJson.records : [],
+      );
+    } else {
+      setWeatherData([]);
+    }
+
+    // MARK 4.91: 판매전체상 기준일은 항상 오늘 기준으로 시작합니다.
+    // 과거/미래 첫 일정으로 자동 이동하지 않습니다.
+  }
+
+  useEffect(() => {
+    load().catch(() =>
+      setData({
+        ok: false,
+        error: "판매전체상 데이터를 불러오지 못했습니다.",
+        events: [],
+      }),
+    );
+  }, []);
+
+  const events = data?.events || [];
+  const dailyRevenue = data?.dailyRevenue || [];
+  const monthStartDate = monthStart(currentMonth);
+  const monthEndDate = monthEnd(currentMonth);
+  const days = dateRange(monthStartDate, monthEndDate);
+  const dayWidth = 96;
+  const timelineWidth = days.length * dayWidth;
+
+  const filteredEvents = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return events.filter((event: any) => {
+      const s = toDate(event.startDate);
+      const e = toDate(event.endDate || event.startDate);
+      const overlaps = s && e && e >= monthStartDate && s <= monthEndDate;
+      if (!overlaps) return false;
+      if (
+        hiddenSchedule &&
+        event.category === "schedule" &&
+        /휴무/.test(
+          `${event.title} ${event.group} ${event.content} ${event.displayTitle}`,
+        )
+      )
+        return false;
+      if (!q) return true;
+      const raw = Object.values(event.raw || {}).join(" ");
+      return `${event.title} ${event.displayTitle || ""} ${event.person || ""} ${event.group} ${event.largeCategory} ${raw}`
+        .toLowerCase()
+        .includes(q);
+    });
+  }, [events, query, currentMonth, hiddenSchedule]);
+
+  const eventsByCategory = useMemo(() => {
+    const map = new Map<string, any[]>();
+    for (const row of CATEGORY_ROWS) map.set(row.key, []);
+    for (const event of filteredEvents) {
+      const key = event.rowKey || event.category || "general";
+      if (!map.has(key)) {
+        const fallbackKey = event.category || "general";
+        if (!map.has(fallbackKey)) map.set(fallbackKey, []);
+        map.get(fallbackKey)!.push(event);
+      } else {
+        map.get(key)!.push(event);
+      }
+    }
+    return map;
+  }, [filteredEvents]);
+
+  const counts = useMemo(() => {
+    const base: Record<string, number> = {};
+    for (const row of CATEGORY_ROWS) base[row.key] = 0;
+    for (const event of filteredEvents)
+      base[event.category || "general"] =
+        (base[event.category || "general"] || 0) + 1;
+    return base;
+  }, [filteredEvents]);
+
+  const weatherByDate = useMemo(() => {
+    const map = new Map<string, any>();
+    for (const row of weatherData) {
+      if (!row?.date) continue;
+      const prev = map.get(row.date);
+      if (
+        !prev ||
+        row.source === "actual" ||
+        text(row.savedAt) > text(prev.savedAt)
+      ) {
+        map.set(row.date, row);
+      }
+    }
+    return map;
+  }, [weatherData]);
+
+  const revenueByDate = useMemo(() => {
+    const map = new Map<string, any>();
+    for (const row of dailyRevenue) {
+      if (row?.date) map.set(row.date, row);
+    }
+    return map;
+  }, [dailyRevenue]);
+
+  function moveMonth(delta: number) {
+    setCurrentMonth(
+      (prev) => new Date(prev.getFullYear(), prev.getMonth() + delta, 1),
+    );
+  }
+
+  return (
+    <main className="min-h-screen p-6">
+      <div className="mx-auto max-w-[1800px] space-y-6">
+        <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">판매전체상</h1>
+            <p className="mt-1 text-sm text-slate-500">
+              Schedule_Simple 기준 전체 판매 운영 로드맵입니다.
+            </p>
+            <p className="mt-1 text-xs font-semibold text-blue-600">
+              {data?.sheetName
+                ? `${data.sheetName} · 메인 스프레드시트 실시간 데이터`
+                : "Schedule_Simple"}
+            </p>
+          </div>
+          <NavTabs active="schedule" />
+        </header>
+
+        <section className="rounded-[2rem] bg-slate-950 p-6 text-white shadow-sm">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-xs font-black text-slate-400">
+                MARK 4.80 SCHEDULE ROADMAP
+              </p>
+              <h2 className="mt-2 text-3xl font-black">
+                {monthTitle(currentMonth)}
+              </h2>
+              <p className="mt-2 text-sm font-semibold text-slate-300">
+                가로는 날짜, 세로는 운영 구분입니다. 기간 일정은 막대로
+                연결됩니다.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-6 gap-2 text-center">
+              <div className="rounded-2xl bg-white/10 px-4 py-3">
+                <p className="text-2xl font-black">{filteredEvents.length}</p>
+                <p className="text-[11px] font-bold text-slate-400">전체</p>
+              </div>
+              <div className="rounded-2xl bg-rose-500/20 px-4 py-3">
+                <p className="text-2xl font-black">{counts.promotion || 0}</p>
+                <p className="text-[11px] font-bold text-rose-200">프로모션</p>
+              </div>
+              <div className="rounded-2xl bg-emerald-500/20 px-4 py-3">
+                <p className="text-2xl font-black">{counts.vmd || 0}</p>
+                <p className="text-[11px] font-bold text-emerald-200">VMD</p>
+              </div>
+              <div className="rounded-2xl bg-violet-500/20 px-4 py-3">
+                <p className="text-2xl font-black">{counts.marketing || 0}</p>
+                <p className="text-[11px] font-bold text-violet-200">마케팅</p>
+              </div>
+              <div className="rounded-2xl bg-cyan-500/20 px-4 py-3">
+                <p className="text-2xl font-black">{counts.product || 0}</p>
+                <p className="text-[11px] font-bold text-cyan-200">상품</p>
+              </div>
+              <div className="rounded-2xl bg-blue-500/20 px-4 py-3">
+                <p className="text-2xl font-black">{counts.schedule || 0}</p>
+                <p className="text-[11px] font-bold text-blue-200">스케줄</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {data && !data.ok ? (
+          <section className="rounded-3xl border border-rose-200 bg-rose-50 p-5 text-sm font-black text-rose-700">
+            {data.error}
+          </section>
+        ) : null}
+
+        <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => moveMonth(-1)}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-black text-slate-700 hover:bg-slate-50"
+              >
+                이전달
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrentMonth(new Date())}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-black text-slate-700 hover:bg-slate-50"
+              >
+                오늘
+              </button>
+              <button
+                type="button"
+                onClick={() => moveMonth(1)}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-black text-slate-700 hover:bg-slate-50"
+              >
+                다음달
+              </button>
+              <button
+                type="button"
+                onClick={load}
+                className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-black text-white"
+              >
+                새로고침
+              </button>
+              <button
+                type="button"
+                onClick={() => setHiddenSchedule((v) => !v)}
+                className={`rounded-xl px-4 py-2 text-sm font-black ${hiddenSchedule ? "bg-blue-50 text-blue-700" : "bg-slate-100 text-slate-700"}`}
+              >
+                {hiddenSchedule ? "휴무 숨김" : "휴무 표시"}
+              </button>
+            </div>
+
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="행사/구분/내용 검색"
+              className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold outline-none focus:border-slate-400 lg:w-[360px]"
+            />
+          </div>
+        </section>
+
+        <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+          <div className="overflow-x-auto">
+            <div className="flex border-b border-slate-200 bg-slate-50">
+              <div className="sticky left-0 z-30 w-36 shrink-0 border-r border-slate-200 bg-slate-50 p-3 text-xs font-black text-slate-500">
+                구분
+              </div>
+              <div
+                className="grid"
+                style={{
+                  gridTemplateColumns: `repeat(${days.length}, ${dayWidth}px)`,
+                  width: `${timelineWidth}px`,
+                }}
+              >
+                {days.map((day) => {
+                  const isToday = ymd(day) === ymd(new Date());
+                  const isWeekend = day.getDay() === 0 || day.getDay() === 6;
+                  return (
+                    <div
+                      key={ymd(day)}
+                      className={`border-r border-slate-200 p-2 text-center ${isWeekend ? "bg-slate-100" : "bg-white"} ${isToday ? "bg-slate-900 text-white" : ""}`}
+                    >
+                      <p className="text-xs font-black">{displayDay(day)}</p>
+                      <p className="mt-1 text-[11px] font-bold opacity-70">
+                        {dayName(day)}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div>
+              {CATEGORY_ROWS_TOP.map((row) => {
+                const categoryEvents = eventsByCategory.get(row.key) || [];
+                const lanes = stackEvents(categoryEvents);
+                const isCompactRow =
+                  row.key.startsWith("staff:") || row.key === "schedule";
+                const laneHeight = isCompactRow ? 32 : 44;
+                const rowHeight = Math.max(
+                  isCompactRow ? 42 : 58,
+                  lanes.length * laneHeight + 10,
+                );
+
+                return (
+                  <div key={row.key} className="flex border-b border-slate-100">
+                    <div
+                      className={`sticky left-0 z-20 flex w-36 shrink-0 items-center justify-between border-r border-slate-200 bg-white ${isCompactRow ? "p-2" : "p-3"} ${categorySoftClass((row as any).category || row.key)}`}
+                    >
+                      <div>
+                        <p
+                          className={`${isCompactRow ? "text-xs" : "text-sm"} font-black`}
+                        >
+                          {row.label}
+                        </p>
+                        <p className="mt-0.5 text-[10px] font-bold opacity-70">
+                          {categoryEvents.length}건
+                        </p>
+                      </div>
+                    </div>
+
+                    <div
+                      className="relative"
+                      style={{
+                        width: `${timelineWidth}px`,
+                        height: `${rowHeight}px`,
+                      }}
+                    >
+                      <div
+                        className="absolute inset-0 grid"
+                        style={{
+                          gridTemplateColumns: `repeat(${days.length}, ${dayWidth}px)`,
+                        }}
+                      >
+                        {days.map((day) => (
+                          <div
+                            key={ymd(day)}
+                            className={`border-r border-slate-100 ${day.getDay() === 0 || day.getDay() === 6 ? "bg-slate-50" : ""}`}
+                          />
+                        ))}
+                      </div>
+
+                      {lanes.map((lane, laneIndex) => (
+                        <div
+                          key={`${row.key}-lane-${laneIndex}`}
+                          className="absolute left-0 right-0"
+                          style={{
+                            top: `${laneIndex * laneHeight + 6}px`,
+                            height: `${isCompactRow ? 28 : 40}px`,
+                          }}
+                        >
+                          {lane.map((event: any) => (
+                            <EventBar
+                              key={event.id}
+                              event={event}
+                              monthStartDate={monthStartDate}
+                              monthEndDate={monthEndDate}
+                              dayWidth={dayWidth}
+                              compact={isCompactRow}
+                            />
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+
+              <div className="flex border-b border-slate-100 bg-emerald-50/60">
+                <div className="sticky left-0 z-20 flex w-36 shrink-0 items-center border-r border-slate-200 bg-emerald-50 p-3">
+                  <div>
+                    <p className="text-sm font-black text-emerald-800">매출</p>
+                    <p className="mt-1 text-[11px] font-bold text-emerald-600">핵심 오프라인</p>
+                  </div>
+                </div>
+                <div
+                  className="grid"
+                  style={{
+                    gridTemplateColumns: `repeat(${days.length}, ${dayWidth}px)`,
+                    width: `${timelineWidth}px`,
+                  }}
+                >
+                  {days.map((day) => {
+                    const key = ymd(day);
+                    const revenue = revenueByDate.get(key);
+                    const amount = Number(revenue?.amount || 0);
+                    const growthRate = revenue ? Number(revenue.growthRate || 0) : null;
+                    const tooltip = revenue
+                      ? `일자: ${key}\n매출: ${Math.round(amount).toLocaleString("ko-KR")}원\n전주 동요일(${revenue.prevDate}) 대비: ${growthRate! >= 0 ? "+" : ""}${growthRate!.toFixed(1)}%`
+                      : "매출 데이터 없음";
+
+                    return (
+                      <div
+                        key={`revenue-${key}`}
+                        title={tooltip}
+                        className={`min-h-[58px] border-r border-emerald-100 p-2 text-center ${day.getDay() === 0 || day.getDay() === 6 ? "bg-emerald-100/40" : ""}`}
+                      >
+                        {revenue ? (
+                          <>
+                            <p className="truncate text-[11px] font-black text-emerald-900">
+                              {amount >= 10000 ? `${Math.round(amount / 10000).toLocaleString("ko-KR")}만` : Math.round(amount).toLocaleString("ko-KR")}
+                            </p>
+                            <p className={`mt-1 truncate text-[11px] font-bold ${growthRate! >= 0 ? "text-blue-600" : "text-rose-600"}`}>
+                              {growthRate! >= 0 ? "+" : ""}{growthRate!.toFixed(0)}%
+                            </p>
+                          </>
+                        ) : (
+                          <p className="text-[11px] font-bold text-emerald-300">-</p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {CATEGORY_ROWS_BOTTOM.map((row) => {
+                const categoryEvents = eventsByCategory.get(row.key) || [];
+                const lanes = stackEvents(categoryEvents);
+                const isCompactRow =
+                  row.key.startsWith("staff:") || row.key === "schedule";
+                const laneHeight = isCompactRow ? 32 : 44;
+                const rowHeight = Math.max(
+                  isCompactRow ? 42 : 58,
+                  lanes.length * laneHeight + 10,
+                );
+
+                return (
+                  <div key={row.key} className="flex border-b border-slate-100">
+                    <div
+                      className={`sticky left-0 z-20 flex w-36 shrink-0 items-center justify-between border-r border-slate-200 bg-white ${isCompactRow ? "p-2" : "p-3"} ${categorySoftClass((row as any).category || row.key)}`}
+                    >
+                      <div>
+                        <p
+                          className={`${isCompactRow ? "text-xs" : "text-sm"} font-black`}
+                        >
+                          {row.label}
+                        </p>
+                        <p className="mt-0.5 text-[10px] font-bold opacity-70">
+                          {categoryEvents.length}건
+                        </p>
+                      </div>
+                    </div>
+
+                    <div
+                      className="relative"
+                      style={{
+                        width: `${timelineWidth}px`,
+                        height: `${rowHeight}px`,
+                      }}
+                    >
+                      <div
+                        className="absolute inset-0 grid"
+                        style={{
+                          gridTemplateColumns: `repeat(${days.length}, ${dayWidth}px)`,
+                        }}
+                      >
+                        {days.map((day) => (
+                          <div
+                            key={ymd(day)}
+                            className={`border-r border-slate-100 ${day.getDay() === 0 || day.getDay() === 6 ? "bg-slate-50" : ""}`}
+                          />
+                        ))}
+                      </div>
+
+                      {lanes.map((lane, laneIndex) => (
+                        <div
+                          key={`${row.key}-lane-${laneIndex}`}
+                          className="absolute left-0 right-0"
+                          style={{
+                            top: `${laneIndex * laneHeight + 6}px`,
+                            height: `${isCompactRow ? 28 : 40}px`,
+                          }}
+                        >
+                          {lane.map((event: any) => (
+                            <EventBar
+                              key={event.id}
+                              event={event}
+                              monthStartDate={monthStartDate}
+                              monthEndDate={monthEndDate}
+                              dayWidth={dayWidth}
+                              compact={isCompactRow}
+                            />
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+
+              <div className="flex border-b border-slate-100 bg-sky-50/60">
+                <div className="sticky left-0 z-20 flex w-36 shrink-0 items-center border-r border-slate-200 bg-sky-50 p-3">
+                  <div>
+                    <p className="text-sm font-black text-sky-800">서울 날씨</p>
+                    <p className="mt-1 text-[11px] font-bold text-sky-600">
+                      OpenWeather
+                    </p>
+                  </div>
+                </div>
+                <div
+                  className="grid"
+                  style={{
+                    gridTemplateColumns: `repeat(${days.length}, ${dayWidth}px)`,
+                    width: `${timelineWidth}px`,
+                  }}
+                >
+                  {days.map((day) => {
+                    const key = ymd(day);
+                    const weather = weatherByDate.get(key);
+                    const displayWeather = weather
+                      ? normalizeWeatherText(weather.weather)
+                      : "-";
+                    const tooltip = weather
+                      ? `구분: ${weather.source === "actual" ? "전일 확정" : "예보"}\n날씨: ${displayWeather}\n최고기온: ${weather.maxTemp ?? "-"}℃\n최저기온: ${weather.minTemp ?? "-"}℃\n강수확률: ${weather.rainChance ?? "-"}%\n강수량: ${weather.rainMm ?? "-"}mm\n습도: ${weather.humidity ?? "-"}%\n풍속: ${weather.windSpeed ?? "-"}m/s\n저장시간: ${weather.savedAt || "-"}`
+                      : "날씨 데이터 없음";
+
+                    return (
+                      <div
+                        key={`weather-${key}`}
+                        title={tooltip}
+                        className={`min-h-[66px] border-r border-sky-100 p-2 text-center ${day.getDay() === 0 || day.getDay() === 6 ? "bg-sky-100/50" : ""}`}
+                      >
+                        {weather ? (
+                          <>
+                            <p className="truncate text-[11px] font-black text-sky-900">
+                              {displayWeather}
+                            </p>
+                            <p className="mt-1 text-[11px] font-bold text-sky-700">
+                              {Math.round(Number(weather.maxTemp || 0))}° /{" "}
+                              {Math.round(Number(weather.minTemp || 0))}°
+                            </p>
+                          </>
+                        ) : (
+                          <p className="pt-3 text-[11px] font-bold text-slate-300">
+                            -
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="text-xl font-black">4.80 운영 메모</h2>
+          <div className="mt-3 grid gap-3 text-sm font-semibold leading-6 text-slate-600 md:grid-cols-3">
+            <div className="rounded-2xl bg-slate-50 p-4">
+              자동 Snapshot: 매일 12:00 Daily_Sales_History 저장
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
+              주간 Snapshot: 매주 월요일 12:10 Product/Store/RT Performance 저장
+              예정
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
+              Agent Growth Loop: Logic_Master → 성과검산 → 개선제안 로드맵 반영
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  );
+}

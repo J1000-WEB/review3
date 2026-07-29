@@ -1,11 +1,48 @@
+"use client";
+
 import Link from "next/link";
-export default function NavTabs({ active }: { active: "daily" | "weekly" | "monthly" }) {
+
+export default function NavTabs({ active }: { active: "schedule" | "sales-data" | "daily" | "weekly" | "monthly" | "inventory" | "insights" | "snapshot" | "trends" | "logic" | "vmd" | "store" }) {
   const tabs = [
-    { key: "daily", label: "일간", href: "/daily" },
+    { key: "schedule", label: "판매전체상", href: "/schedule" },
     { key: "weekly", label: "주간", href: "/weekly" },
+    { key: "sales-data", label: "판매데이터", href: "/sales-data" },
+    { key: "inventory", label: "재고CTRL", href: "/inventory" },
+    { key: "trends", label: "상품동향", href: "/trends" },
+    { key: "vmd", label: "VMD", href: "/vmd" },
+    { key: "daily", label: "일간", href: "/daily" },
+    { key: "store", label: "매장", href: "/store" },
     { key: "monthly", label: "월간", href: "/monthly" },
+    { key: "snapshot", label: "스냅샷", href: "/snapshot" },
   ] as const;
-  return <div className="flex gap-2">{tabs.map((tab) => (
-    <Link key={tab.key} href={tab.href} className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${active === tab.key ? "bg-slate-900 text-white" : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50"}`}>{tab.label}</Link>
-  ))}</div>;
+
+  function logout() {
+    localStorage.removeItem("mark_auth");
+    window.location.href = "/";
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {tabs.map((tab) => (
+        <Link
+          key={tab.key}
+          href={tab.href}
+          className={`rounded-xl px-4 py-2 text-sm font-semibold ${
+            active === tab.key
+              ? "bg-slate-900 text-white"
+              : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+          }`}
+        >
+          {tab.label}
+        </Link>
+      ))}
+      <button
+        type="button"
+        onClick={logout}
+        className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-500 hover:bg-slate-50"
+      >
+        로그아웃
+      </button>
+    </div>
+  );
 }
